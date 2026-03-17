@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>UBverse Star Map</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script type="text/babel" data-type="module">
+    const { useState, useRef, useCallback, useEffect } = React;
+
+// Background stars scattered around origin in world-space
+const BG_STARS = Array.from({ length: 320 }, (_, i) => ({
+  x: ((i * 137.508 + i * i * 0.13) % 1400) - 700,
+  y: ((i * 97.831  + i * i * 0.19) % 1000) - 500,
+  r: [0.4, 0.5, 0.6, 0.8, 1.0, 1.3][i % 6],
+  o: 0.04 + (i % 9) * 0.026,
+}));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// All x/y are in WORLD COORDINATES with Sol at (0, 0).
+// Positive X = galactic east, Positive Y = galactic south.
+// Scale: 1 parsec ≈ 80 units.
+// ─────────────────────────────────────────────────────────────────────────────
+const SYSTEMS = [
+  
+  {
+    id: "sol", name: "Sol System", x: 0, y: 0,
+    type: "wiki_real", faction: "cf_ldf", starClass: "G2V",
+    starType: "Yellow Dwarf", distance: "0 ly / 0 pc", distancePc: 0, size: 9,
+    bodies: [
+      "Earth (CF/LDF Capital — 'Terra' to Protectorate)",
+      "Orbital Defense Ring (destroyed during CF War)",
+      "Moon (CF controlled, later conquered by Lava Dome)",
+      "Mercury · Venus · Mars · Jupiter · Saturn · Uranus · Neptune",
+    ],
+    description: "Homeworld of humanity and capital of Commander Force. Earth was later conquered by Lava Dome after the Commander Force War, becoming the new LDF capital. CF constructed an orbital defense ring around Earth — destroyed during the war. Post-war, Elorix provided atmospheric scrubber blueprints to restore Earth's pollution-ravaged atmosphere.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "ross128", name: "Ross 128", x: 128, y: -16,
+    type: "wiki_real", faction: "elorix", starClass: "M4Ve",
+    starType: "Red Dwarf", distance: "~11 ly / 3.375 pc", distancePc: 3.375, size: 5,
+    bodies: ["Ross 128 B (Rocky habitable - Elorix listening post)"],
+    description: "Contains the habitable exoplanet Ross 128 B. Documented in UBverse records at exactly 3.375 parsecs from Earth.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "elorix_system", name: "Elorix System", x: -296, y: -138,
+    type: "wiki_fictional", faction: "elorix", starClass: "K4V",
+    starType: "Orange Dwarf", distance: "~4 pc (nwst.)", distancePc: 4, size: 8,
+    bodies: [
+      "Elorix (terraformed paradise — capital planet)",
+      "Orbital Defense Ring",
+      "Orbital Shipyard Network (capital ships)",
+      "LDF Mothership (currently docked)",
+    ],
+    description: "Homeworld of the Elorixians and capital of the Elorix faction. Originally a desert world, terraformed into a lush paradise dotted with major cities. Features a vast network of orbital stations serving as capital-ship shipyards, plus a full orbital defense ring. An LDF mothership is currently berthed here.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "concordia", name: "Concordia System", x: 348, y: -195,
+    type: "wiki_fictional", faction: "cf", starClass: "?",
+    starType: "Unknown", distance: "~8 pc (est.)", distancePc: 8, size: 6,
+    bodies: [
+      "Concordia Waterlands (medical support)",
+      "Concordia Toxiclands (medical support)",
+      "Concordia Rocklands (0.9× Earth — near-identical gravity)",
+      "Concordia Moon (anomaly: monochrome effect — under heavy research)",
+    ],
+    description: "CF-controlled medical support system in The Silent Void. All three planets serve as field medical stations. The Concordia Moon is under intense research — everything on its surface appears completely monochrome, cause unknown.",
+    inVoid: true, mobile: false,
+  },
+  {
+    id: "novaria_system", name: "Novaria System", x: 420, y: -82,
+    type: "wiki_fictional", faction: "cf", starClass: "? (placeholder)",
+    starType: "Unknown", distance: "~9 pc (est.)", distancePc: 9, size: 5,
+    bodies: [
+      "Novaria (CF territory — first claimed)",
+      "Novaria Supreme (CF claimed — uses Protectorate naming conventions)",
+    ],
+    description: "CF-controlled system deep in The Silent Void. Novaria was claimed first; Novaria Supreme was claimed afterward — hence 'Supreme.' Curiously, Novaria Supreme uses Protectorate naming conventions despite being CF territory.",
+    inVoid: true, mobile: false,
+  },
+  {
+    id: "axarion", name: "Axarion", x: 318, y: 98,
+    type: "wiki_fictional", faction: "protectorate", starClass: "N/A",
+    starType: "Mobile Fortress-Planet", distance: "Variable (mobile)", distancePc: null, size: 8,
+    bodies: [
+      "Axarion — mobile artificial command planet",
+      "Throneworld of the Protectorate Empire",
+      "Homeworld of Homo Venerabilis",
+      "Base Frozen Gaze (Protectorate outpost, nearby)",
+    ],
+    description: "Capital of the Protectorate Empire. Converted from a terrestrial planet into a fully mobile artificial fortress — self-sustaining and self-defending. Serves as centralized command for the entire Protectorate. Position shown is last known location.",
+    inVoid: false, mobile: true,
+  },
+  {
+    id: "legor", name: "Legor", x: 230, y: -67,
+    type: "wiki_fictional", faction: "ldf_prev", starClass: "?",
+    starType: "Unknown", distance: "~6 pc (est.)", distancePc: 6, size: 4,
+    bodies: ["Legor (formerly Lava Dome controlled)"],
+    description: "Listed in UBverse records as previously controlled by Lava Dome. Current status and controlling faction unknown following the Commander Force War.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "proxima", name: "Proxima Centauri", x: -62, y: 58,
+    type: "real_added", faction: "neutral", starClass: "M5.5Ve",
+    starType: "Red Dwarf (Flare)", distance: "4.24 ly / 1.30 pc", distancePc: 1.30, size: 4,
+    bodies: ["Proxima Centauri b (habitable zone)", "Proxima Centauri c", "Proxima Centauri d"],
+    description: "The nearest star to Sol. Proxima b orbits in the habitable zone. As an active flare star, powerful radiation events may challenge habitability. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "alpha_cen", name: "Alpha Centauri", x: -44, y: 66,
+    type: "real_added", faction: "neutral", starClass: "G2V + K1V",
+    starType: "Binary (Yellow + Orange Dwarf)", distance: "4.37 ly / 1.34 pc", distancePc: 1.34, size: 5,
+    bodies: ["Alpha Centauri A (G-type, Sun-like)", "Alpha Centauri B (K-type)", "Proxima Centauri (distant companion)"],
+    description: "Third brightest star in Earth's sky and nearest stellar system. Two Sun-like stars orbiting each other. Prime candidate for early interstellar colonization. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "barnards", name: "Barnard's Star", x: 68, y: -90,
+    type: "real_added", faction: "neutral", starClass: "M4Ve",
+    starType: "Red Dwarf", distance: "5.98 ly / 1.83 pc", distancePc: 1.83, size: 4,
+    bodies: ["Barnard b (unconfirmed candidate)"],
+    description: "The fastest-moving star in the sky. Second nearest star system to Sol. Project Daedalus' original target destination. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "wolf359", name: "Wolf 359", x: -118, y: -82,
+    type: "real_added", faction: "neutral", starClass: "M6Ve",
+    starType: "Red Dwarf (Flare Star)", distance: "7.78 ly / 2.39 pc", distancePc: 2.39, size: 3,
+    bodies: ["No confirmed planets"],
+    description: "One of the faintest and smallest known stars. A highly active flare star in Leo. Famous in science fiction. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "lalande", name: "Lalande 21185", x: -42, y: -166,
+    type: "real_added", faction: "neutral", starClass: "M2V",
+    starType: "Red Dwarf", distance: "8.31 ly / 2.55 pc", distancePc: 2.55, size: 4,
+    bodies: ["Lalande 21185 b (candidate)", "Lalande 21185 c (candidate)"],
+    description: "4th nearest star system with two planet candidates. A dim red dwarf in Ursa Major. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "sirius", name: "Sirius", x: -134, y: 72,
+    type: "real_added", faction: "neutral", starClass: "A1V + DA2",
+    starType: "White Main-Seq + White Dwarf", distance: "8.60 ly / 2.64 pc", distancePc: 2.64, size: 6,
+    bodies: ["Sirius A (brightest star in Earth's sky)", "Sirius B (white dwarf companion)"],
+    description: "The brightest star in Earth's night sky. A blazing binary with a white dwarf companion. A dominant visual landmark from Sol. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "ross154", name: "Ross 154", x: 94, y: 38,
+    type: "real_added", faction: "neutral", starClass: "M3.5Ve",
+    starType: "Red Dwarf (Flare)", distance: "9.69 ly / 2.97 pc", distancePc: 2.97, size: 3,
+    bodies: ["No confirmed planets"],
+    description: "A violent flare star in Sagittarius. Stellar eruptions make this system an unlikely candidate for habitability. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "epsilon_eri", name: "Epsilon Eridani", x: -207, y: 72,
+    type: "real_added", faction: "neutral", starClass: "K2V",
+    starType: "Orange Dwarf", distance: "10.5 ly / 3.22 pc", distancePc: 3.22, size: 5,
+    bodies: ["Epsilon Eridani b (confirmed giant planet)", "Inner asteroid belt", "Outer debris disk"],
+    description: "Young orange dwarf with a confirmed giant planet and debris disks. One of the most studied nearby stars for habitability. Classic sci-fi destination. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "procyon", name: "Procyon", x: -202, y: -55,
+    type: "real_added", faction: "neutral", starClass: "F5IV-V + DA",
+    starType: "Subgiant + White Dwarf", distance: "11.5 ly / 3.50 pc", distancePc: 3.50, size: 5,
+    bodies: ["Procyon A (yellow-white subgiant)", "Procyon B (white dwarf)"],
+    description: "8th brightest star in Earth's sky. A binary with a white dwarf companion. Part of the Winter Triangle asterism. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "61cygni", name: "61 Cygni", x: 52, y: -216,
+    type: "real_added", faction: "neutral", starClass: "K5V + K7V",
+    starType: "Binary Orange Dwarfs", distance: "11.4 ly / 3.50 pc", distancePc: 3.50, size: 4,
+    bodies: ["61 Cygni A", "61 Cygni B"],
+    description: "First star to have its distance measured by parallax (1838). A binary of two orange dwarfs in Cygnus. Historically pivotal in astronomy. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "eps_indi", name: "Epsilon Indi", x: 88, y: 116,
+    type: "real_added", faction: "neutral", starClass: "K4V",
+    starType: "Orange Dwarf", distance: "11.8 ly / 3.63 pc", distancePc: 3.63, size: 4,
+    bodies: ["Epsilon Indi Ab (brown dwarf)", "Epsilon Indi Ba/Bb (T-dwarf binary)"],
+    description: "Orange dwarf with a binary brown dwarf companion system in Indus. One of the nearest stars. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "tau_ceti", name: "Tau Ceti", x: -209, y: 108,
+    type: "real_added", faction: "cf", starClass: "G8.5V",
+    starType: "Yellow Dwarf", distance: "11.9 ly / 3.65 pc", distancePc: 3.65, size: 6,
+    bodies: ["Tau Ceti e (habitable - CF city)", "Tau Ceti f (habitable - CF city)", "Tau Ceti g", "Tau Ceti h"],
+    description: "One of the nearest Sun-like stars with multiple planet candidates including two in the habitable zone. Both habitable planets have CF cities on them. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "luyten", name: "Luyten's Star", x: -217, y: -6,
+    type: "real_added", faction: "neutral", starClass: "M3.5Vn",
+    starType: "Red Dwarf", distance: "12.4 ly / 3.79 pc", distancePc: 3.79, size: 4,
+    bodies: ["GJ 273 b (habitable zone)", "GJ 273 c"],
+    description: "GJ 273 b orbits in the habitable zone. In 2017, humanity broadcast a METI message toward this system — arriving ~2030. Not in the UBverse wiki.",
+    inVoid: false, mobile: false,
+  },
+];
+
+const FACTION = {
+  cf:           { color: "#3b82f6", name: "Commander Force" },
+  cf_ldf:       { color: "#8b5cf6", name: "CF → Lava Dome" },
+  ldf:          { color: "#ef4444", name: "Lava Dome" },
+  ldf_prev:     { color: "#f87171", name: "Lava Dome (former)" },
+  elorix:       { color: "#22c55e", name: "Elorix" },
+  protectorate: { color: "#f59e0b", name: "Protectorate Empire" },
+  neutral:      { color: "#6b7280", name: "Unaffiliated" },
+};
+
+const TYPE = {
+  wiki_real:      { label: "Wiki (Real Star)",   dot: "#60a5fa" },
+  wiki_fictional: { label: "Wiki (Fictional)",   dot: "#c084fc" },
+  real_added:     { label: "Real (Not in Wiki)", dot: "#34d399" },
+};
+
+export default function App() {
+  const [sel,      setSel]      = useState(null);
+  const [tip,      setTip]      = useState(null);
+  const [tipPos,   setTipPos]   = useState({ x: 0, y: 0 });
+  // pan offset — applied ON TOP of the auto-centering
+  const [pan,      setPan]      = useState({ x: 0, y: 0 });
+  const [zoom,     setZoom]     = useState(1);
+  const [dragging, setDragging] = useState(false);
+  const [lastPt,   setLastPt]   = useState(null);
+  const [filter,   setFilter]   = useState("all");
+  // SVG size so we can place (0,0) at the centre
+  const [svgSize,  setSvgSize]  = useState({ w: 900, h: 540 });
+  const svgRef  = useRef(null);
+  const didDrag = useRef(false);
+
+  // Track SVG element size
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => {
+      setSvgSize({ w: e.contentRect.width, h: e.contentRect.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Wheel zoom
+  const onWheel = useCallback((e) => {
+    e.preventDefault();
+    const d = e.deltaY < 0 ? 1.12 : 0.9;
+    setZoom(z => Math.min(8, Math.max(0.2, z * d)));
+  }, []);
+
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [onWheel]);
+
+  const onDown = (e) => {
+    setDragging(true);
+    setLastPt({ x: e.clientX, y: e.clientY });
+    didDrag.current = false;
+  };
+  const onMove = (e) => {
+    if (!dragging || !lastPt) return;
+    const dx = e.clientX - lastPt.x, dy = e.clientY - lastPt.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) didDrag.current = true;
+    setPan(p => ({ x: p.x + dx, y: p.y + dy }));
+    setLastPt({ x: e.clientX, y: e.clientY });
+  };
+  const onUp = () => { setDragging(false); setLastPt(null); };
+
+  const shown = filter === "all" ? SYSTEMS : SYSTEMS.filter(s => s.type === filter);
+
+  // World → screen:  screen = (worldPos * zoom) + centre + pan
+  const cx = svgSize.w / 2 + pan.x;
+  const cy = svgSize.h / 2 + pan.y;
+
+  // The Silent Void region in world-coords
+  const voidCX = 390, voidCY = -138, voidRX = 155, voidRY = 140;
+
+  return (
+    <div style={{ background: "#04040e", minHeight: "100vh", color: "#e2e8f0",
+      fontFamily: "'Courier New',Courier,monospace", display: "flex",
+      flexDirection: "column", userSelect: "none" }}>
+
+      {/* ── HEADER ── */}
+      <div style={{ padding: "9px 18px", borderBottom: "1px solid #0e0e28",
+        display: "flex", alignItems: "center", gap: 12,
+        background: "#06061a", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <span style={{ fontSize: 22, color: "#818cf8" }}>⬡</span>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: "bold", color: "#a5b4fc", letterSpacing: 3, lineHeight: 1.2 }}>
+              UBVERSE STAR MAP
+            </div>
+            <div style={{ fontSize: 8, color: "#1e1e50", letterSpacing: 2 }}>
+              UNITED BATTLE UNIVERSE · STELLAR NAVIGATION CHART v2.0 — SOL ORIGIN
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 4, marginLeft: 10, flexWrap: "wrap" }}>
+          {[["all","All Systems"],["wiki_real","Wiki · Real"],["wiki_fictional","Wiki · Fictional"],["real_added","Real (Added)"]].map(([v,l]) => (
+            <button key={v} onClick={() => setFilter(v)} style={{
+              background: filter===v ? "#1e1b4b" : "transparent",
+              border: "1px solid " + (filter===v ? "#4f46e5" : "#1a1a35"),
+              color: filter===v ? "#a5b4fc" : "#374151",
+              padding: "3px 9px", borderRadius: 3, cursor: "pointer", fontSize: 9, letterSpacing: 1,
+            }}>{l}</button>
+          ))}
+          <button onClick={() => { setPan({ x:0, y:0 }); setZoom(1); }} style={{
+            background: "transparent", border: "1px solid #1a1a35", color: "#374151",
+            padding: "3px 9px", borderRadius: 3, cursor: "pointer", fontSize: 9, marginLeft: 5,
+          }}>⟲ RESET</button>
+        </div>
+
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 9, color: "#1a1a40", letterSpacing: 1, fontVariantNumeric: "tabular-nums" }}>
+            ZOOM {Math.round(zoom * 100)}%
+          </span>
+          <span style={{ fontSize: 8, color: "#12122a", letterSpacing: 1 }}>SCROLL · DRAG · CLICK</span>
+        </div>
+      </div>
+
+      {/* ── BODY ── */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
+
+        <svg ref={svgRef}
+          style={{ flex: 1, cursor: dragging ? "grabbing" : "crosshair", display: "block" }}
+          onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
+          onClick={() => { if (!didDrag.current) setSel(null); }}>
+
+          <defs>
+            <filter id="glow2" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="3" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+            <radialGradient id="voidFill" cx="50%" cy="50%">
+              <stop offset="0%"   stopColor="#4c1d95" stopOpacity="0.22"/>
+              <stop offset="60%"  stopColor="#2e1065" stopOpacity="0.12"/>
+              <stop offset="100%" stopColor="#1e0a50" stopOpacity="0"/>
+            </radialGradient>
+          </defs>
+
+          <rect width="100%" height="100%" fill="#04040e"/>
+
+          {/* Fixed grid lines (screen-space, always visible) */}
+          <g opacity="0.018">
+            {Array.from({length:28},(_,i)=>(
+              <line key={"gv"+i} x1={i*70} y1={0} x2={i*70} y2={2000} stroke="#6366f1" strokeWidth={0.5}/>
+            ))}
+            {Array.from({length:18},(_,i)=>(
+              <line key={"gh"+i} x1={0} y1={i*70} x2={2000} y2={i*70} stroke="#6366f1" strokeWidth={0.5}/>
+            ))}
+          </g>
+
+          {/* ── WORLD TRANSFORM GROUP — origin at (cx, cy) ── */}
+          {/* All child positions are in world-space; multiply by zoom to get screen offset from centre */}
+          <g transform={`translate(${cx}, ${cy}) scale(${zoom})`}>
+
+            {/* Background stars (world-space positions) */}
+            {BG_STARS.map((s,i) => (
+              <circle key={i} cx={s.x} cy={s.y} r={s.r / zoom} fill="white" opacity={s.o}/>
+            ))}
+
+
+
+            {/* Sol crosshair */}
+            <line x1={0} y1={-12} x2={0} y2={12} stroke="#8b5cf6" strokeWidth={0.7 / zoom} opacity={0.4}/>
+            <line x1={-12} y1={0} x2={12} y2={0} stroke="#8b5cf6" strokeWidth={0.7 / zoom} opacity={0.4}/>
+
+            {/* The Silent Void nebula */}
+            <ellipse cx={voidCX} cy={voidCY} rx={voidRX} ry={voidRY} fill="url(#voidFill)"/>
+            <ellipse cx={voidCX} cy={voidCY} rx={voidRX} ry={voidRY} fill="none"
+              stroke="#6d28d9" strokeWidth={1.3 / zoom} strokeDasharray={`${14/zoom},${7/zoom}`} opacity={0.38}/>
+            <text x={voidCX} y={voidCY - voidRY - 16} textAnchor="middle"
+              fill="#7c3aed" fontSize={12 / zoom} fontStyle="italic" letterSpacing={6} opacity={0.6}>
+              THE SILENT VOID
+            </text>
+            <text x={voidCX} y={voidCY - voidRY - 4} textAnchor="middle"
+              fill="#5b21b6" fontSize={8 / zoom} letterSpacing={3} opacity={0.3}>
+              LARGELY UNEXPLORED
+            </text>
+
+            {/* ── STAR SYSTEMS ── */}
+            {shown.map(sys => {
+              const fc = FACTION[sys.faction];
+              const tc = TYPE[sys.type];
+              const isSel = sel?.id === sys.id;
+              const r = sys.size / zoom;
+
+              return (
+                <g key={sys.id} transform={`translate(${sys.x}, ${sys.y})`}
+                  style={{ cursor: "pointer" }}
+                  onClick={e => { e.stopPropagation(); if (!didDrag.current) setSel(isSel ? null : sys); }}
+                  onMouseEnter={e => { setTip(sys); setTipPos({ x: e.clientX, y: e.clientY }); }}
+                  onMouseMove={e => setTipPos({ x: e.clientX, y: e.clientY })}
+                  onMouseLeave={() => setTip(null)}>
+
+                  {/* Selection rings */}
+                  {isSel && <>
+                    <circle r={(sys.size+14)/zoom} fill="none" stroke={fc.color} strokeWidth={0.5/zoom} opacity={0.18}/>
+                    <circle r={(sys.size+9)/zoom}  fill="none" stroke={fc.color} strokeWidth={1/zoom}   opacity={0.35} strokeDasharray={`${4/zoom},${4/zoom}`}/>
+                  </>}
+
+                  {/* Faction halo */}
+                  <circle r={(sys.size+6)/zoom} fill={fc.color} opacity={isSel ? 0.18 : 0.07}/>
+
+                  {/* Mobile orbit dashes */}
+                  {sys.mobile && (
+                    <circle r={(sys.size+7)/zoom} fill="none" stroke={fc.color}
+                      strokeWidth={1/zoom} strokeDasharray={`${5/zoom},${4/zoom}`} opacity={0.65}/>
+                  )}
+
+                  {/* Star body */}
+                  <circle r={r} fill={tc.dot} stroke={fc.color}
+                    strokeWidth={(isSel ? 2.5 : 1.5)/zoom} filter="url(#glow2)" opacity={0.93}/>
+
+                  {/* Inner core */}
+                  <circle r={r * (sys.size >= 6 ? 0.42 : 0.5)} fill="white"
+                    opacity={sys.size >= 6 ? 0.55 : 0.35}/>
+
+                  {/* Label */}
+                  <text x={0} y={r + 13/zoom} textAnchor="middle"
+                    fill={isSel ? "#c4b5fd" : "rgba(148,163,184,0.65)"}
+                    fontSize={(isSel ? 9 : 8) / zoom}
+                    fontWeight={isSel ? "bold" : "normal"}
+                    letterSpacing={0.4 / zoom}>
+                    {sys.name}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+        </svg>
+
+        {/* ── DETAIL PANEL ── */}
+        {sel && (
+          <div style={{ width: 304, background: "#060618", borderLeft: "1px solid #0e0e28",
+            display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ padding: "13px 15px 10px", borderBottom: "1px solid #0e0e28",
+              display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: "bold", color: "#c4b5fd", letterSpacing: 1, lineHeight: 1.2, marginBottom: 4 }}>
+                  {sel.name}
+                </div>
+                <div style={{ fontSize: 8, color: "#1e1e50", letterSpacing: 2 }}>SYSTEM RECORD</div>
+              </div>
+              <button onClick={() => setSel(null)} style={{ background: "none", border: "none",
+                color: "#2d2d50", cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 0, marginTop: -3 }}>×</button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "13px 15px" }}>
+              {/* Badges */}
+              <div style={{ display: "flex", gap: 5, marginBottom: 13, flexWrap: "wrap" }}>
+                {[
+                  [TYPE[sel.type].dot, TYPE[sel.type].label],
+                  [FACTION[sel.faction].color, FACTION[sel.faction].name],
+                  ...(sel.mobile ? [["#f59e0b","⊛ MOBILE"]] : []),
+                  ...(sel.inVoid ? [["#7c3aed","◌ SILENT VOID"]] : []),
+                ].map(([c,l]) => (
+                  <span key={l} style={{ background: c+"16", border: "1px solid "+c+"40", color: c,
+                    padding: "2px 8px", borderRadius: 2, fontSize: 9, letterSpacing: 1 }}>{l.toUpperCase()}</span>
+                ))}
+              </div>
+
+              <p style={{ color: "#8892a4", fontSize: 10.5, lineHeight: 1.75, margin: "0 0 14px" }}>{sel.description}</p>
+
+              <div style={{ borderTop: "1px solid #0e0e24", paddingTop: 11, marginBottom: 13 }}>
+                <div style={{ fontSize: 8, color: "#1a1a45", letterSpacing: 2, marginBottom: 8 }}>STELLAR DATA</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "7px 10px" }}>
+                  {[
+                    ["CLASS",    sel.starClass],
+                    ["TYPE",     sel.starType],
+                    sel.distancePc != null
+                      ? ["WORLD COORDS", `(${sel.x}, ${sel.y})`]
+                      : ["POSITION", "Variable / Mobile"],
+                  ].map(([k,v]) => (
+                    <div key={k}>
+                      <div style={{ fontSize: 7.5, color: "#1a2840", letterSpacing: 1, marginBottom: 2 }}>{k}</div>
+                      <div style={{ fontSize: 9.5, color: "#8892a4" }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ borderTop: "1px solid #0e0e24", paddingTop: 11 }}>
+                <div style={{ fontSize: 8, color: "#1a1a45", letterSpacing: 2, marginBottom: 8 }}>KNOWN BODIES</div>
+                {sel.bodies.map((b,i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 7, marginBottom: 6 }}>
+                    <span style={{ color: TYPE[sel.type].dot, fontSize: 7, marginTop: 3, flexShrink: 0 }}>◆</span>
+                    <span style={{ fontSize: 9.5, color: "#8892a4", lineHeight: 1.5 }}>{b}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── LEGEND ── */}
+      <div style={{ padding: "7px 18px", borderTop: "1px solid #0a0a20",
+        background: "#06061a", display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 8, color: "#1a1a40", letterSpacing: 2 }}>TYPE</span>
+        {Object.entries(TYPE).map(([k,v]) => (
+          <span key={k} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: v.dot,
+              display: "inline-block", boxShadow: "0 0 5px "+v.dot }}/>
+            <span style={{ fontSize: 8, color: "#2d3748" }}>{v.label}</span>
+          </span>
+        ))}
+        <span style={{ fontSize: 8, color: "#1a1a40", letterSpacing: 2, marginLeft: 8 }}>FACTION</span>
+        {Object.entries(FACTION).map(([k,v]) => (
+          <span key={k} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: v.color, display: "inline-block" }}/>
+            <span style={{ fontSize: 8, color: "#2d3748" }}>{v.name}</span>
+          </span>
+        ))}
+      </div>
+
+      {/* ── TOOLTIP ── */}
+      {tip && (
+        <div style={{ position: "fixed", left: tipPos.x+15, top: tipPos.y-52,
+          background: "#09091e", border: "1px solid #1e1b4b",
+          padding: "7px 12px", borderRadius: 5, fontSize: 11,
+          pointerEvents: "none", zIndex: 1000,
+          boxShadow: "0 0 24px rgba(99,102,241,0.18)" }}>
+          <div style={{ color: "#a5b4fc", fontWeight: "bold", letterSpacing: 1, marginBottom: 2 }}>{tip.name}</div>
+          <div style={{ color: "#374151", fontSize: 9, letterSpacing: 1 }}>{tip.starType}</div>
+          <div style={{ color: FACTION[tip.faction].color, fontSize: 9, letterSpacing: 1, marginTop: 2 }}>
+            {FACTION[tip.faction].name}
+          </div>
+          <div style={{ color: "#1a1a40", fontSize: 8, letterSpacing: 1, marginTop: 2 }}>
+            ({tip.x}, {tip.y})
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+    // (everything from the import lines down to the closing brace)
+    // But remove the import line at the top — replace it with:
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
