@@ -53,7 +53,7 @@ const SYSTEMS = [
     type: "wiki_fictional", faction: "elorix", starClass: "K4V",
     starType: "Orange Dwarf", distance: "~4 pc (nwst.)", distancePc: 4, size: 8,
     bodies: [
-      "Elorix (terraformed paradise — capital planet)",
+      "Elorix Prime (terraformed paradise — capital planet)",
       "Orbital Defense Ring",
       "Orbital Shipyard Network (capital ships)",
       "LDF Mothership (currently docked)",
@@ -211,16 +211,28 @@ const SYSTEMS = [
     inVoid: false, mobile: false,
   },
   {
-  id: "tethys", name: "Tethys", x: 198, y: 172,
-  type: "wiki_fictional", faction: "protectorate", starClass: "G9V",
-  starType: "Yellow Dwarf", distancePc: 0, size: 5,
-  bodies: [
-    "Tethys (Earth-like — largely unexplored)",
-    "Cave infantry base (Protectorate — artificial terraforming structure)",
-    "Tethys I (small barren moon)",
-  ],
-  description: "An Earth-like backwater planet, mostly unexplored and home to various random assorted groups. The Protectorate Empire maintains a small infantry presence here, including a concealed weapons assembly base built inside a hillside cave — structured using artificial terraforming materials rather than conventional construction. Not to be confused with Tethys, the moon of Saturn.",
-  inVoid: false, mobile: false,
+    id: "tethys", name: "Tethys", x: 198, y: 172,
+    type: "wiki_fictional", faction: "protectorate", starClass: "G9V",
+    starType: "Yellow Dwarf", distancePc: 0, size: 5,
+    bodies: [
+      "Tethys (Earth-like — largely unexplored)",
+      "Cave infantry base (Protectorate — artificial terraforming structure)",
+      "Tethys I (small barren moon)",
+    ],
+    description: "An Earth-like backwater planet, mostly unexplored and home to various random assorted groups. The Protectorate Empire maintains a small infantry presence here, including a concealed weapons assembly base built inside a hillside cave — structured using artificial terraforming materials rather than conventional construction. Not to be confused with Tethys, the moon of Saturn.",
+    inVoid: false, mobile: false,
+  },
+  {
+    id: "gaudeo_system", name: "Gaudeo System", x: -269, y: -96,
+    type: "wiki_fictional", faction: "elorix", starClass: "G6VI",
+    starType: "Red Giant", distancePc: 0, size: 7,
+    bodies: [
+      "Gaudeo a (chthonian planet — scorching, losing mass over time)",
+      "Aether (gas giant — 7 Elorix orbital stations, metallic hydrogen extraction)",
+      "Gaudeo b (ice giant — crystallized helium in upper atmosphere, Elorix spaceport)",
+    ],
+    description: "A red giant system slightly south of the Elorix System and crucial to Elorix's economy. Gaudeo a is a chthonian planet — a former gas giant stripped of its atmosphere when the star expanded, now a scorching fireball orbiting extremely close to the star and slowly losing mass. Aether is a gas giant with 4 residential and 3 industrial orbital stations, and atmospheric extractors harvesting rare metallic hydrogen. Gaudeo b is a distant ice giant with crystallized helium floating in its upper atmosphere, serviced by an Elorix spaceport that dispatches tractor-beam mining ships.",
+    inVoid: false, mobile: false,
   },
 
 ];
@@ -320,7 +332,7 @@ export default function App() {
               UBVERSE STAR MAP
             </div>
             <div style={{ fontSize: 8, color: "#1e1e50", letterSpacing: 2 }}>
-              UNITED BATTLE UNIVERSE · STELLAR NAVIGATION CHART v2.0 — SOL ORIGIN
+              UNITED BATTLE UNIVERSE · STELLAR NAVIGATION CHART v2.0
             </div>
           </div>
         </div>
