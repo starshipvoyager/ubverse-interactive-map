@@ -2,7 +2,13 @@
 <html>
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>UBverse Star Map</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; overflow: hidden; }
+    #root { width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+  </style>
 </head>
 <body>
   <div id="root"></div>
@@ -257,18 +263,24 @@ export default function App() {
   const [sel,      setSel]      = useState(null);
   const [tip,      setTip]      = useState(null);
   const [tipPos,   setTipPos]   = useState({ x: 0, y: 0 });
-  // pan offset — applied ON TOP of the auto-centering
   const [pan,      setPan]      = useState({ x: 0, y: 0 });
   const [zoom,     setZoom]     = useState(1);
   const [dragging, setDragging] = useState(false);
   const [lastPt,   setLastPt]   = useState(null);
   const [filter,   setFilter]   = useState("all");
-  // SVG size so we can place (0,0) at the centre
   const [svgSize,  setSvgSize]  = useState({ w: 900, h: 540 });
-  const svgRef  = useRef(null);
-  const didDrag = useRef(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const svgRef    = useRef(null);
+  const didDrag   = useRef(false);
+  const pinchRef  = useRef(null); // { dist, zoom }
 
-  // Track SVG element size
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 700);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   useEffect(() => {
     const el = svgRef.current;
     if (!el) return;
@@ -279,11 +291,10 @@ export default function App() {
     return () => ro.disconnect();
   }, []);
 
-  // Wheel zoom
+  // ── Mouse wheel zoom ──
   const onWheel = useCallback((e) => {
     e.preventDefault();
-    const d = e.deltaY < 0 ? 1.12 : 0.9;
-    setZoom(z => Math.min(8, Math.max(0.2, z * d)));
+    setZoom(z => Math.min(8, Math.max(0.2, z * (e.deltaY < 0 ? 1.12 : 0.9))));
   }, []);
 
   useEffect(() => {
@@ -293,6 +304,7 @@ export default function App() {
     return () => el.removeEventListener("wheel", onWheel);
   }, [onWheel]);
 
+  // ── Mouse events ──
   const onDown = (e) => {
     setDragging(true);
     setLastPt({ x: e.clientX, y: e.clientY });
@@ -307,13 +319,62 @@ export default function App() {
   };
   const onUp = () => { setDragging(false); setLastPt(null); };
 
-  const shown = filter === "all" ? SYSTEMS : SYSTEMS.filter(s => s.type === filter);
+  // ── Touch events ──
+  const onTouchStart = useCallback((e) => {
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      setDragging(true);
+      setLastPt({ x: t.clientX, y: t.clientY });
+      didDrag.current = false;
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchRef.current = { dist: Math.hypot(dx, dy), zoom };
+      setDragging(false);
+    }
+  }, [zoom]);
 
-  // World → screen:  screen = (worldPos * zoom) + centre + pan
+  const onTouchMove = useCallback((e) => {
+    e.preventDefault();
+    if (e.touches.length === 1 && dragging && lastPt) {
+      const t = e.touches[0];
+      const dx = t.clientX - lastPt.x, dy = t.clientY - lastPt.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) didDrag.current = true;
+      setPan(p => ({ x: p.x + dx, y: p.y + dy }));
+      setLastPt({ x: t.clientX, y: t.clientY });
+    } else if (e.touches.length === 2 && pinchRef.current) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const newDist = Math.hypot(dx, dy);
+      const scale = newDist / pinchRef.current.dist;
+      setZoom(Math.min(8, Math.max(0.2, pinchRef.current.zoom * scale)));
+    }
+  }, [dragging, lastPt]);
+
+  const onTouchEnd = useCallback((e) => {
+    if (e.touches.length === 0) {
+      setDragging(false);
+      setLastPt(null);
+      pinchRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    el.addEventListener("touchstart",  onTouchStart, { passive: false });
+    el.addEventListener("touchmove",   onTouchMove,  { passive: false });
+    el.addEventListener("touchend",    onTouchEnd,   { passive: false });
+    return () => {
+      el.removeEventListener("touchstart",  onTouchStart);
+      el.removeEventListener("touchmove",   onTouchMove);
+      el.removeEventListener("touchend",    onTouchEnd);
+    };
+  }, [onTouchStart, onTouchMove, onTouchEnd]);
+
+  const shown = filter === "all" ? SYSTEMS : SYSTEMS.filter(s => s.type === filter);
   const cx = svgSize.w / 2 + pan.x;
   const cy = svgSize.h / 2 + pan.y;
-
-  // The Silent Void region in world-coords
   const voidCX = 390, voidCY = -138, voidRX = 155, voidRY = 140;
 
   return (
@@ -356,7 +417,9 @@ export default function App() {
           <span style={{ fontSize: 9, color: "#1a1a40", letterSpacing: 1, fontVariantNumeric: "tabular-nums" }}>
             ZOOM {Math.round(zoom * 100)}%
           </span>
-          <span style={{ fontSize: 8, color: "#12122a", letterSpacing: 1 }}>SCROLL · DRAG · CLICK</span>
+          <span style={{ fontSize: 8, color: "#12122a", letterSpacing: 1 }}>
+            {isMobile ? "DRAG · PINCH · TAP" : "SCROLL · DRAG · CLICK"}
+          </span>
         </div>
       </div>
 
@@ -364,7 +427,7 @@ export default function App() {
       <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
 
         <svg ref={svgRef}
-          style={{ flex: 1, cursor: dragging ? "grabbing" : "crosshair", display: "block" }}
+          style={{ flex: 1, cursor: dragging ? "grabbing" : "crosshair", display: "block", touchAction: "none" }}
           onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
           onClick={() => { if (!didDrag.current) setSel(null); }}>
 
@@ -472,67 +535,120 @@ export default function App() {
           </g>
         </svg>
 
-        {/* ── DETAIL PANEL ── */}
+        {/* ── DETAIL PANEL — side panel on desktop, bottom sheet on mobile ── */}
         {sel && (
-          <div style={{ width: 304, background: "#060618", borderLeft: "1px solid #0e0e28",
-            display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ padding: "13px 15px 10px", borderBottom: "1px solid #0e0e28",
-              display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: "bold", color: "#c4b5fd", letterSpacing: 1, lineHeight: 1.2, marginBottom: 4 }}>
-                  {sel.name}
+          isMobile ? (
+            // ── MOBILE: bottom sheet ──
+            <div style={{
+              position: "fixed", bottom: 0, left: 0, right: 0,
+              background: "#060618", borderTop: "1px solid #1e1b4b",
+              maxHeight: "55vh", display: "flex", flexDirection: "column",
+              zIndex: 500, borderRadius: "14px 14px 0 0",
+              boxShadow: "0 -8px 40px rgba(99,102,241,0.18)",
+            }}>
+              {/* drag handle */}
+              <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 4px" }}>
+                <div style={{ width: 36, height: 4, borderRadius: 2, background: "#1e1e50" }}/>
+              </div>
+              <div style={{ padding: "0 15px 6px", borderBottom: "1px solid #0e0e28",
+                display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: "bold", color: "#c4b5fd", letterSpacing: 1 }}>{sel.name}</div>
+                  <div style={{ fontSize: 8, color: "#1e1e50", letterSpacing: 2 }}>SYSTEM RECORD</div>
                 </div>
-                <div style={{ fontSize: 8, color: "#1e1e50", letterSpacing: 2 }}>SYSTEM RECORD</div>
+                <button onClick={() => setSel(null)} style={{ background: "none", border: "none",
+                  color: "#4a4a70", cursor: "pointer", fontSize: 26, lineHeight: 1, padding: "0 4px" }}>×</button>
               </div>
-              <button onClick={() => setSel(null)} style={{ background: "none", border: "none",
-                color: "#2d2d50", cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 0, marginTop: -3 }}>×</button>
-            </div>
-
-            <div style={{ flex: 1, overflowY: "auto", padding: "13px 15px" }}>
-              {/* Badges */}
-              <div style={{ display: "flex", gap: 5, marginBottom: 13, flexWrap: "wrap" }}>
-                {[
-                  [TYPE[sel.type].dot, TYPE[sel.type].label],
-                  [FACTION[sel.faction].color, FACTION[sel.faction].name],
-                  ...(sel.mobile ? [["#f59e0b","⊛ MOBILE"]] : []),
-                  ...(sel.inVoid ? [["#7c3aed","◌ SILENT VOID"]] : []),
-                ].map(([c,l]) => (
-                  <span key={l} style={{ background: c+"16", border: "1px solid "+c+"40", color: c,
-                    padding: "2px 8px", borderRadius: 2, fontSize: 9, letterSpacing: 1 }}>{l.toUpperCase()}</span>
-                ))}
-              </div>
-
-              <p style={{ color: "#8892a4", fontSize: 10.5, lineHeight: 1.75, margin: "0 0 14px" }}>{sel.description}</p>
-
-              <div style={{ borderTop: "1px solid #0e0e24", paddingTop: 11, marginBottom: 13 }}>
-                <div style={{ fontSize: 8, color: "#1a1a45", letterSpacing: 2, marginBottom: 8 }}>STELLAR DATA</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "7px 10px" }}>
+              <div style={{ flex: 1, overflowY: "auto", padding: "12px 15px 24px" }}>
+                <div style={{ display: "flex", gap: 5, marginBottom: 11, flexWrap: "wrap" }}>
                   {[
-                    ["CLASS",    sel.starClass],
-                    ["TYPE",     sel.starType],
-                    sel.distancePc != null
-                      ? ["WORLD COORDS", `(${sel.x}, ${sel.y})`]
-                      : ["POSITION", "Variable / Mobile"],
-                  ].map(([k,v]) => (
-                    <div key={k}>
-                      <div style={{ fontSize: 7.5, color: "#1a2840", letterSpacing: 1, marginBottom: 2 }}>{k}</div>
-                      <div style={{ fontSize: 9.5, color: "#8892a4" }}>{v}</div>
+                    [TYPE[sel.type].dot, TYPE[sel.type].label],
+                    [FACTION[sel.faction].color, FACTION[sel.faction].name],
+                    ...(sel.mobile ? [["#f59e0b","⊛ MOBILE"]] : []),
+                    ...(sel.inVoid ? [["#7c3aed","◌ SILENT VOID"]] : []),
+                  ].map(([c,l]) => (
+                    <span key={l} style={{ background: c+"16", border: "1px solid "+c+"40", color: c,
+                      padding: "2px 8px", borderRadius: 2, fontSize: 9, letterSpacing: 1 }}>{l.toUpperCase()}</span>
+                  ))}
+                </div>
+                <p style={{ color: "#8892a4", fontSize: 11, lineHeight: 1.7, margin: "0 0 12px" }}>{sel.description}</p>
+                <div style={{ borderTop: "1px solid #0e0e24", paddingTop: 10, marginBottom: 11 }}>
+                  <div style={{ fontSize: 8, color: "#1a1a45", letterSpacing: 2, marginBottom: 7 }}>STELLAR DATA</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 10px" }}>
+                    {[["CLASS", sel.starClass],["TYPE", sel.starType],
+                      sel.distancePc != null ? ["WORLD COORDS",`(${sel.x}, ${sel.y})`] : ["POSITION","Variable / Mobile"]
+                    ].map(([k,v]) => (
+                      <div key={k}>
+                        <div style={{ fontSize: 7.5, color: "#1a2840", letterSpacing: 1, marginBottom: 2 }}>{k}</div>
+                        <div style={{ fontSize: 10, color: "#8892a4" }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ borderTop: "1px solid #0e0e24", paddingTop: 10 }}>
+                  <div style={{ fontSize: 8, color: "#1a1a45", letterSpacing: 2, marginBottom: 7 }}>KNOWN BODIES</div>
+                  {sel.bodies.map((b,i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 7, marginBottom: 6 }}>
+                      <span style={{ color: TYPE[sel.type].dot, fontSize: 7, marginTop: 3, flexShrink: 0 }}>◆</span>
+                      <span style={{ fontSize: 10, color: "#8892a4", lineHeight: 1.5 }}>{b}</span>
                     </div>
                   ))}
                 </div>
               </div>
-
-              <div style={{ borderTop: "1px solid #0e0e24", paddingTop: 11 }}>
-                <div style={{ fontSize: 8, color: "#1a1a45", letterSpacing: 2, marginBottom: 8 }}>KNOWN BODIES</div>
-                {sel.bodies.map((b,i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 7, marginBottom: 6 }}>
-                    <span style={{ color: TYPE[sel.type].dot, fontSize: 7, marginTop: 3, flexShrink: 0 }}>◆</span>
-                    <span style={{ fontSize: 9.5, color: "#8892a4", lineHeight: 1.5 }}>{b}</span>
+            </div>
+          ) : (
+            // ── DESKTOP: side panel ──
+            <div style={{ width: 304, background: "#060618", borderLeft: "1px solid #0e0e28",
+              display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ padding: "13px 15px 10px", borderBottom: "1px solid #0e0e28",
+                display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: "bold", color: "#c4b5fd", letterSpacing: 1, lineHeight: 1.2, marginBottom: 4 }}>
+                    {sel.name}
                   </div>
-                ))}
+                  <div style={{ fontSize: 8, color: "#1e1e50", letterSpacing: 2 }}>SYSTEM RECORD</div>
+                </div>
+                <button onClick={() => setSel(null)} style={{ background: "none", border: "none",
+                  color: "#2d2d50", cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 0, marginTop: -3 }}>×</button>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", padding: "13px 15px" }}>
+                <div style={{ display: "flex", gap: 5, marginBottom: 13, flexWrap: "wrap" }}>
+                  {[
+                    [TYPE[sel.type].dot, TYPE[sel.type].label],
+                    [FACTION[sel.faction].color, FACTION[sel.faction].name],
+                    ...(sel.mobile ? [["#f59e0b","⊛ MOBILE"]] : []),
+                    ...(sel.inVoid ? [["#7c3aed","◌ SILENT VOID"]] : []),
+                  ].map(([c,l]) => (
+                    <span key={l} style={{ background: c+"16", border: "1px solid "+c+"40", color: c,
+                      padding: "2px 8px", borderRadius: 2, fontSize: 9, letterSpacing: 1 }}>{l.toUpperCase()}</span>
+                  ))}
+                </div>
+                <p style={{ color: "#8892a4", fontSize: 10.5, lineHeight: 1.75, margin: "0 0 14px" }}>{sel.description}</p>
+                <div style={{ borderTop: "1px solid #0e0e24", paddingTop: 11, marginBottom: 13 }}>
+                  <div style={{ fontSize: 8, color: "#1a1a45", letterSpacing: 2, marginBottom: 8 }}>STELLAR DATA</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "7px 10px" }}>
+                    {[["CLASS", sel.starClass],["TYPE", sel.starType],
+                      sel.distancePc != null ? ["WORLD COORDS",`(${sel.x}, ${sel.y})`] : ["POSITION","Variable / Mobile"]
+                    ].map(([k,v]) => (
+                      <div key={k}>
+                        <div style={{ fontSize: 7.5, color: "#1a2840", letterSpacing: 1, marginBottom: 2 }}>{k}</div>
+                        <div style={{ fontSize: 9.5, color: "#8892a4" }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ borderTop: "1px solid #0e0e24", paddingTop: 11 }}>
+                  <div style={{ fontSize: 8, color: "#1a1a45", letterSpacing: 2, marginBottom: 8 }}>KNOWN BODIES</div>
+                  {sel.bodies.map((b,i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 7, marginBottom: 6 }}>
+                      <span style={{ color: TYPE[sel.type].dot, fontSize: 7, marginTop: 3, flexShrink: 0 }}>◆</span>
+                      <span style={{ fontSize: 9.5, color: "#8892a4", lineHeight: 1.5 }}>{b}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+          )
         )}
       </div>
 
@@ -556,8 +672,8 @@ export default function App() {
         ))}
       </div>
 
-      {/* ── TOOLTIP ── */}
-      {tip && (
+      {/* ── TOOLTIP — desktop only ── */}
+      {tip && !isMobile && (
         <div style={{ position: "fixed", left: tipPos.x+15, top: tipPos.y-52,
           background: "#09091e", border: "1px solid #1e1b4b",
           padding: "7px 12px", borderRadius: 5, fontSize: 11,
